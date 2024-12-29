@@ -18,37 +18,76 @@ db_path = data_dir / "data_store.db"
 conn = duckdb.connect(str(db_path))
 
 
-@app.on_event("startup")
-def startup_event():
-    # Create a sample table (only if it doesn't exist)
-    conn.execute("CREATE TABLE IF NOT EXISTS test_table (id INTEGER, value TEXT);")
+@app.post("/create_table/")
+def create_table(table_name: str, columns: str):
+    """
+    Dynamically create a table.
+    - `table_name`: Name of the table to create.
+    - `columns`: Column definitions (e.g., "id INTEGER, value TEXT").
+    """
+    try:
+        if not table_name.isidentifier():
+            raise HTTPException(status_code=400, detail="Invalid table name.")
+
+        conn.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({columns});")
+        return {"message": f"Table '{table_name}' created successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/insert/")
 async def insert_data(request: Request):
+    """
+    Insert data into a specified table.
+    JSON Body Format:
+    {
+        "table_name": "table_name_here",
+        "data": {"column1": "value1", "column2": "value2"}
+    }
+    """
     try:
         # Parse JSON body
-        data = await request.json()
-        id = data.get("id")
-        value = data.get("value")
+        body = await request.json()
+        table_name = body.get("table_name")
+        data = body.get("data")
 
-        if id is None or value is None:
+        if not table_name or not isinstance(data, dict):
             raise HTTPException(
-                status_code=400, detail="Both 'id' and 'value' are required"
+                status_code=400, detail="Both 'table_name' and 'data' are required."
             )
 
-        conn.execute("INSERT INTO test_table VALUES (?, ?);", (id, value))
-        return {"message": "Data inserted successfully"}
+        if not table_name.isidentifier():
+            raise HTTPException(status_code=400, detail="Invalid table name.")
+
+        # Prepare SQL query
+        columns = ", ".join(data.keys())
+        placeholders = ", ".join(["?"] * len(data))
+        values = tuple(data.values())
+
+        conn.execute(
+            f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders});", values
+        )
+        return {"message": f"Data inserted into '{table_name}' successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/query/")
-def query_data(query: str):
+def query_data(query: str, table_name: str = None):
+    """
+    Query data from the database.
+    - `table_name`: Name of the table (optional if a raw query is provided).
+    - `query`: SQL query to execute.
+    """
     try:
-        # Execute SQL query
+        if table_name and not table_name.isidentifier():
+            raise HTTPException(status_code=400, detail="Invalid table name.")
+
+        query = query or f"SELECT * FROM {table_name}" if table_name else query
+        if not query:
+            raise HTTPException(status_code=400, detail="A query must be provided.")
+
         result = conn.execute(query).fetchdf()
-        # Convert result to JSON
         return result.to_dict(orient="records")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -60,8 +99,15 @@ def health_check():
 
 
 @app.post("/upload/")
-def upload_data(file: UploadFile = File(...)):
+def upload_data(table_name: str, file: UploadFile = File(...)):
+    """
+    Upload CSV or Parquet data to a specified table.
+    - `table_name`: Name of the table to upload data into.
+    """
     try:
+        if not table_name.isidentifier():
+            raise HTTPException(status_code=400, detail="Invalid table name.")
+
         # Read file content
         content = file.file.read()
         df = None
@@ -78,7 +124,7 @@ def upload_data(file: UploadFile = File(...)):
 
         # Insert data into DuckDB
         conn.register("upload_df", df)
-        conn.execute("INSERT INTO data SELECT * FROM upload_df")
+        conn.execute(f"INSERT INTO {table_name} SELECT * FROM upload_df")
         return {"message": "Data uploaded successfully", "rows_inserted": len(df)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
