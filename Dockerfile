@@ -2,16 +2,16 @@
 FROM python:3.13-slim
 
 # Set the working directory in the container
-WORKDIR /app
+WORKDIR /duck_db_api
 
 # Copy only the requirements file first to leverage Docker caching
-COPY requirements.txt /app/
+COPY requirements.txt /duck_db_api/
 
 # Install dependencies from requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the rest of the application files into the container
-COPY . /app
+COPY . /duck_db_api
 
 # Expose the port your app runs on
 EXPOSE 8000
