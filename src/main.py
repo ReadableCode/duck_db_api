@@ -1,6 +1,5 @@
 import io
-from pathlib import Path
-from typing import List
+import os
 
 import duckdb
 import pandas as pd
@@ -9,13 +8,45 @@ from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 app = FastAPI()
 
 # Ensure /data directory exists at the project root
-project_root = Path(__file__).resolve().parent.parent
-data_dir = project_root / "data"
-data_dir.mkdir(exist_ok=True)
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+data_dir = os.path.join(project_root, "data")
+os.makedirs(data_dir, exist_ok=True)
 
 # Initialize DuckDB connection
-db_path = data_dir / "data_store.db"
-conn = duckdb.connect(str(db_path))
+db_path = os.path.join(data_dir, "data_store.db")
+conn = duckdb.connect(db_path)
+
+
+@app.post("/raw_query/")
+async def raw_query(request: Request):
+    """
+    Execute a raw SQL query.
+    JSON Body Format:
+    {
+        "query": "SELECT * FROM table_name;",
+        "params": []  # Optional list of query parameters
+    }
+    """
+    try:
+        # Parse JSON body
+        body = await request.json()
+        query = body.get("query")
+        params = body.get("params", [])
+
+        if not query:
+            raise HTTPException(status_code=400, detail="Query must be provided.")
+
+        # Optional: Validate query (e.g., restrict certain commands for safety)
+        if query.strip().lower().startswith("drop"):
+            raise HTTPException(
+                status_code=403, detail="DROP statements are not allowed."
+            )
+
+        # Execute query
+        result = conn.execute(query, params).fetchdf()
+        return {"status": "success", "data": result.to_dict(orient="records")}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/create_table/")
