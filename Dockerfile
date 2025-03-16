@@ -16,6 +16,9 @@ COPY . /duck_db_api
 # Expose the port your app runs on
 EXPOSE 8000
 
+# # Declare a volume for data
+VOLUME ["/duck_db_api"]
+
 # run the command from the src directory
 # Command to run the application
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
