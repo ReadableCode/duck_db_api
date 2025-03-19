@@ -32,3 +32,4 @@ gmail_oauth*.json
 gmail_token*.json
 .mypy_cache/
 *.egg-info/
+.venv
