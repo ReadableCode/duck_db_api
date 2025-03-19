@@ -28,7 +28,6 @@ async def raw_query(request: Request):
     }
     """
     try:
-        # Parse JSON body
         body = await request.json()
         query = body.get("query")
         params = body.get("params", [])
@@ -36,15 +35,23 @@ async def raw_query(request: Request):
         if not query:
             raise HTTPException(status_code=400, detail="Query must be provided.")
 
-        # Optional: Validate query (e.g., restrict certain commands for safety)
         if query.strip().lower().startswith("drop"):
             raise HTTPException(
                 status_code=403, detail="DROP statements are not allowed."
             )
 
         # Execute query
-        result = conn.execute(query, params).fetchdf()
-        return {"status": "success", "data": result.to_dict(orient="records")}
+        result = conn.execute(query, params)
+
+        # Auto-commit if query modifies data
+        if (
+            query.strip()
+            .lower()
+            .startswith(("insert", "update", "delete", "create", "alter"))
+        ):
+            conn.commit()
+
+        return {"status": "success", "data": result.fetchdf().to_dict(orient="records")}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -77,7 +84,6 @@ async def insert_data(request: Request):
     }
     """
     try:
-        # Parse JSON body
         body = await request.json()
         table_name = body.get("table_name")
         data = body.get("data")
@@ -90,7 +96,6 @@ async def insert_data(request: Request):
         if not table_name.isidentifier():
             raise HTTPException(status_code=400, detail="Invalid table name.")
 
-        # Prepare SQL query
         columns = ", ".join(data.keys())
         placeholders = ", ".join(["?"] * len(data))
         values = tuple(data.values())
@@ -98,6 +103,8 @@ async def insert_data(request: Request):
         conn.execute(
             f"INSERT INTO {table_name} ({columns}) VALUES ({placeholders});", values
         )
+        conn.commit()  # Commit the transaction
+
         return {"message": f"Data inserted into '{table_name}' successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
